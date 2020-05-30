@@ -13,6 +13,13 @@ JSON-LD.
 .. moduleauthor:: Olaf Conradi <olaf@conradi.org>
 """
 
+"""
+Updates Made by:
+Khyati Seth (2016050)
+Richa Goswami (2016077)
+Suyash Singh (2016105)
+
+"""
 import copy
 import hashlib
 import json
@@ -245,7 +252,9 @@ def normalize(input_, options=None):
         (default: _default_document_loader).
 
     :return: the normalized output.
+
     """
+    
     return JsonLdProcessor().normalize(input_, options)
 
 
@@ -770,7 +779,12 @@ class JsonLdProcessor(object):
         options.setdefault('keepFreeFloatingNodes', False)
         options.setdefault('documentLoader', _default_document_loader)
 
+        
+
         # if input is a string, attempt to dereference remote document
+        #schema org error to be handled here
+        if _is_object(input_) and "@context" in input_.keys() and _is_string(input_["@context"]) and (input_["@context"] == "https://schema.org" or input_["@context"] == "http://schema.org") :
+                input_["@context"]= input_["@context"].replace("schema.org", "schema.org/version/latest/schema.jsonld")
         if _is_string(input_):
             remote_doc = options['documentLoader'](input_)
         else:
@@ -780,6 +794,8 @@ class JsonLdProcessor(object):
                 'document': input_
             }
 
+        
+        
         try:
             if remote_doc['document'] is None:
                 raise JsonLdError(
@@ -802,6 +818,7 @@ class JsonLdProcessor(object):
             'document': copy.deepcopy(remote_doc['document']),
             'remoteContext': {'@context': remote_doc['contextUrl']}
         }
+
         if 'expandContext' in options:
             expand_context = copy.deepcopy(options['expandContext'])
             if _is_object(expand_context) and '@context' in expand_context:
@@ -809,17 +826,22 @@ class JsonLdProcessor(object):
             else:
                 input_['expandContext'] = {'@context': expand_context}
 
+        # print("DOC")
+        # print(input_)
         try:
+            
             self._retrieve_context_urls(
                 input_, {}, options['documentLoader'], options['base'])
         except Exception as cause:
             raise JsonLdError(
                 'Could not perform JSON-LD expansion.',
                 'jsonld.ExpandError', cause=cause)
-
+        
+        
         active_ctx = self._get_initial_context(options)
         document = input_['document']
         remote_context = input_['remoteContext']['@context']
+        
 
         # process optional expandContext
         if 'expandContext' in input_:
@@ -831,6 +853,7 @@ class JsonLdProcessor(object):
             active_ctx = self.process_context(
                 active_ctx, remote_context, options)
 
+        
         # do expansion
         expanded = self._expand(active_ctx, None, document, options, False)
 
@@ -930,7 +953,7 @@ class JsonLdProcessor(object):
                 'documentUrl': None,
                 'document': frame
             }
-
+        
         try:
             if remote_frame['document'] is None:
                 raise JsonLdError(
@@ -949,6 +972,7 @@ class JsonLdProcessor(object):
         frame = remote_frame['document']
         if frame is not None:
             ctx = frame.get('@context', {})
+            
             if remote_frame['contextUrl'] is not None:
                 if ctx is not None:
                     ctx = remote_frame['contextUrl']
@@ -959,6 +983,8 @@ class JsonLdProcessor(object):
 
         try:
             # expand input
+            
+            
             expanded = self.expand(input_, options)
         except JsonLdError as cause:
             raise JsonLdError(
@@ -1025,6 +1051,9 @@ class JsonLdProcessor(object):
         :return: the normalized output.
         """
         # set default options
+        
+
+
         options = options.copy() if options else {}
         options.setdefault('algorithm', 'URGNA2012')
         options.setdefault('base', input_ if _is_string(input_) else '')
@@ -1049,6 +1078,7 @@ class JsonLdProcessor(object):
                 if 'format' in opts:
                     del opts['format']
                 opts['produceGeneralizedRdf'] = False
+                
                 dataset = self.to_rdf(input_, opts)
         except JsonLdError as cause:
             raise JsonLdError(
@@ -1125,6 +1155,7 @@ class JsonLdProcessor(object):
         """
         # set default options
         options = options.copy() if options else {}
+        
         options.setdefault('base', input_ if _is_string(input_) else '')
         options.setdefault('produceGeneralizedRdf', False)
         options.setdefault('documentLoader', _default_document_loader)
@@ -1436,7 +1467,8 @@ class JsonLdProcessor(object):
             # return entry value for type
             elif type_ in entry:
                 rval = entry[type_]
-
+        # print("Rval from get_context_value: ")
+        # print(rval)
         return rval
 
     @staticmethod
@@ -2029,7 +2061,7 @@ class JsonLdProcessor(object):
         Recursively expands an element using the given context. Any context in
         the element will be removed. All context URLs must have been retrieved
         before calling this method.
-
+        
         :param active_ctx: the context to use.
         :param active_property: the property for the element, None for none.
         :param element: the element to expand.
@@ -2039,6 +2071,8 @@ class JsonLdProcessor(object):
         :return: the expanded value.
         """
         # nothing to expand
+     
+        
         if element is None:
             return element
 
@@ -2059,11 +2093,9 @@ class JsonLdProcessor(object):
                 e = self._expand(
                     active_ctx, active_property, e, options, inside_list)
                 if inside_list and (_is_array(e) or _is_list(e)):
+                     e = {'@list': e}
                     # lists of lists are illegal
-                    raise JsonLdError(
-                        'Invalid JSON-LD syntax; lists of lists are not '
-                        'permitted.', 'jsonld.SyntaxError',
-                        code='list of lists')
+                    
                 # drop None values
                 if e is not None:
                     if _is_array(e):
@@ -2085,6 +2117,9 @@ class JsonLdProcessor(object):
 
         # recursively expand object
         # if element has a context, process it
+        
+        
+
         if '@context' in element:
             active_ctx = self._process_context(
                 active_ctx, element['@context'], options)
@@ -2142,7 +2177,6 @@ class JsonLdProcessor(object):
             values = JsonLdProcessor.get_values(rval, '@value')
             types = JsonLdProcessor.get_values(rval, '@type')
 
-            # drop None @values
             if rval['@value'] is None:
                 rval = None
             # if @language is present, @value must be a string
@@ -2210,7 +2244,7 @@ class JsonLdProcessor(object):
 
         :return: the expanded value.
         """
-
+       
         nests = []
         for key, value in sorted(element.items()):
             if key == '@context':
@@ -2407,7 +2441,15 @@ class JsonLdProcessor(object):
             else:
                 # recurse into @list or @set
                 is_list = (expanded_property == '@list')
-                if is_list or expanded_property == '@set':
+                # Handling the json serializable objects as values @json type ##New_Update : issue 2 #
+                if JsonLdProcessor.get_context_value(active_ctx, key, '@type') == '@json':
+                    # print ("JSON Value")
+                    # print(value)
+                    expanded_value = {
+                    '@type': '@json',
+                    '@value': value                                    
+                }
+                elif is_list or expanded_property == '@set':
                     next_active_property = active_property
                     if is_list and expanded_active_property == '@graph':
                         next_active_property = None
@@ -2419,6 +2461,8 @@ class JsonLdProcessor(object):
                             'Invalid JSON-LD syntax; lists of lists are '
                             'not permitted.', 'jsonld.SyntaxError',
                             code='list of lists')
+                
+                
                 else:
                     # recursively expand value w/key as new active property
                     expanded_value = self._expand(
@@ -2710,11 +2754,25 @@ class JsonLdProcessor(object):
         """
         global _cache
 
+        # print("process context :  0")
+        # print(local_ctx[0])
+        # print("process context :  1")
+        # print(local_ctx[1])
+        # print("process context : 2")
+        # print(local_ctx[2])
+        # print("process context : 3")
+        # print(local_ctx[3])
+        # print("len context : ")
+        # print(local_ctx)
         # normalize local context to an array
         if _is_object(local_ctx) and _is_array(local_ctx.get('@context')):
             local_ctx = local_ctx['@context']
         ctxs = JsonLdProcessor.arrayify(local_ctx)
 
+        # print("Active context: ")
+        # print(active_ctx)
+        # print("Active context: ")
+        # print(local_ctx)
         # no contexts in array, clone existing context
         if len(ctxs) == 0:
             return self._clone_active_context(active_ctx)
@@ -2722,6 +2780,7 @@ class JsonLdProcessor(object):
         # process each context in order, update active context on each
         # iteration to ensure proper caching
         rval = active_ctx
+
         for ctx in ctxs:
             # reset to initial context
             if ctx is None:
@@ -2734,6 +2793,7 @@ class JsonLdProcessor(object):
 
             # context must be an object now, all URLs retrieved prior to call
             if not _is_object(ctx):
+
                 raise JsonLdError(
                     'Invalid JSON-LD syntax; @context must be an object.',
                     'jsonld.SyntaxError', {'context': ctx},
@@ -2831,7 +2891,6 @@ class JsonLdProcessor(object):
             # process all other keys
             for k, v in ctx.items():
                 self._create_term_definition(rval, ctx, k, defined)
-
             # cache result
             if _cache.get('activeCtx') is not None:
                 _cache.get('activeCtx').set(active_ctx, ctx, rval)
@@ -4288,6 +4347,7 @@ class JsonLdProcessor(object):
         :param defined: a map of defining/defined keys to detect cycles
           and prevent double definitions.
         """
+        
         if term in defined:
             # term already defined
             if defined[term]:
@@ -4336,7 +4396,13 @@ class JsonLdProcessor(object):
             _simple_term = True
             value = {'@id': value}
 
+        #Handling issue 3:
+        if _is_bool(value):
+            return
+
+
         if not _is_object(value):
+
             raise JsonLdError(
                 'Invalid JSON-LD syntax; @context property values must be '
                 'strings or objects.', 'jsonld.SyntaxError',
@@ -4452,22 +4518,32 @@ class JsonLdProcessor(object):
                     'Invalid JSON-LD syntax; @context @type value must be '
                     'a string.', 'jsonld.SyntaxError',
                     {'context': local_ctx}, code='invalid type mapping')
+          
+            ## Handling types in there
             if type_ != '@id' and type_ != '@vocab':
-                # expand @type to full IRI
-                type_ = self._expand_iri(
-                    active_ctx, type_, vocab=True,
-                    local_ctx=local_ctx, defined=defined)
-                if not _is_absolute_iri(type_):
-                    raise JsonLdError(
-                        'Invalid JSON-LD syntax; an @context @type value must '
-                        'be an absolute IRI.', 'jsonld.SyntaxError',
-                        {'context': local_ctx}, code='invalid type mapping')
-                if type_.startswith('_:'):
-                    raise JsonLdError(
-                        'Invalid JSON-LD syntax; an @context @type values '
-                        'must be an IRI, not a blank node identifier.',
-                        'jsonld.SyntaxError', {'context': local_ctx},
-                        code='invalid type mapping')
+                #Handling the case of @json
+                if type_ == '@json' :
+                    if self._processing_mode(active_ctx, 1.0):
+                        raise JsonLdError(
+                            "JSON-LD pre processing error")
+                    else:
+                        print("@Type is @Json")
+                else:
+                    # expand @type to full IRI
+                    type_ = self._expand_iri(
+                        active_ctx, type_, vocab=True,
+                        local_ctx=local_ctx, defined=defined)
+                    if not _is_absolute_iri(type_):
+                        raise JsonLdError(
+                            'Invalid JSON-LD syntax; an @context @type value must '
+                            'be an absolute IRI.', 'jsonld.SyntaxError',
+                            {'context': local_ctx}, code='invalid type mapping')
+                    if type_.startswith('_:'):
+                        raise JsonLdError(
+                            'Invalid JSON-LD syntax; an @context @type values '
+                            'must be an IRI, not a blank node identifier.',
+                            'jsonld.SyntaxError', {'context': local_ctx},
+                            code='invalid type mapping')
             # add @type to mapping
             mapping['@type'] = type_
 
@@ -4651,11 +4727,13 @@ class JsonLdProcessor(object):
                  the @contexts from the urls map, False not to.
         :param base: the base URL to resolve relative URLs against.
         """
+
         if _is_array(input_):
             for e in input_:
                 self._find_context_urls(e, urls, replace, base)
         elif _is_object(input_):
             for k, v in input_.items():
+                
                 if k != '@context':
                     self._find_context_urls(v, urls, replace, base)
                     continue
@@ -4701,6 +4779,8 @@ class JsonLdProcessor(object):
                     for kk, vv in v.items():
                         if _is_object(vv):
                             self._find_context_urls(vv, urls, replace, base)
+                        if _is_array(vv):
+                            self._find_context_urls(vv, urls, replace, base)
 
     def _retrieve_context_urls(self, input_, cycles, load_document, base=''):
         """
@@ -4715,18 +4795,23 @@ class JsonLdProcessor(object):
 
         :return: the result.
         """
+
         if len(cycles) > MAX_CONTEXT_URLS:
             raise JsonLdError(
                 'Maximum number of @context URLs exceeded.',
                 'jsonld.ContextUrlError', {'max': MAX_CONTEXT_URLS},
                 code='loading remote context failed')
 
+
+
         # for tracking URLs to retrieve
         urls = {}
-
+        
+        
+    
         # find all URLs in the given input
         self._find_context_urls(input_, urls, replace=False, base=base)
-
+       
         # queue all unretrieved URLs
         queue = []
         for url, ctx in urls.items():
@@ -4746,8 +4831,11 @@ class JsonLdProcessor(object):
 
             # retrieve URL
             try:
+                # print(url)
+                
                 remote_doc = load_document(url)
                 ctx = remote_doc['document']
+                
             except Exception as cause:
                 raise JsonLdError(
                     'Dereferencing a URL did not result in a valid JSON-LD '
@@ -4773,6 +4861,7 @@ class JsonLdProcessor(object):
                     'jsonld.InvalidUrl', {'url': url},
                     code='invalid remote context')
 
+            
             # use empty context if no @context key is present
             if '@context' not in ctx:
                 ctx = {'@context': {}}
@@ -4783,11 +4872,12 @@ class JsonLdProcessor(object):
             if remote_doc['contextUrl'] is not None:
                 ctx['@context'] = JsonLdProcessor.arrayify(ctx['@context'])
                 ctx['@context'].append(remote_doc['contextUrl'])
-
+            
             # recurse
             self._retrieve_context_urls(ctx, cycles_, load_document, url)
             urls[url] = ctx['@context']
-
+            
+            # print(urls)
         # replace all URLs in the input
         self._find_context_urls(input_, urls, replace=True, base=base)
 
